@@ -211,55 +211,55 @@ function enrichLogSheetFromMasters() {
     LOG.error(`enrichLogSheetFromMasters: ${e.message}\n${e.stack}`); // スタックトレースも出力
     SpreadsheetApp.getUi().alert('エラー: ' + e.message);
   }
-} // ★★★ `enrichLogSheetFromMasters` 関数はここで終了 ★★★
+}
 
+// [LogFrom.gs の outputToCalendar 関数 (source: 235-251) を以下に置き換え]
 
 /**
  * ========= 3. calendar出力（'calendar'シートへの描画） =========
- * (★★★ 修正版：全期間カレンダー表示、A4テキスト、データ行枠線追加 ★★★)
  */
-function outputToCalendar() {
+function outputToCalendar() { //
   const CONFIG_LOCAL = {
     START_COL: CONFIG.logFromStartCol, // 2 (B列)
     COLS_PER_DAY: CONFIG.logFromColsPerDay, // 4 (B,C,D,E)
     MAX_ITEMS_PER_CELL: CONFIG.logFromMaxItems // 4
   };
-  try {
+  try { //
     LOG.info('calendar出力 開始');
 
     const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
-    const calendarSheet = getOrCreateSheet_(ss, 'calendar');
-    const logSheet = getOrCreateSheet_(ss, 'log');
+    const calendarSheet = getOrCreateSheet_(ss, 'calendar'); //
+    const logSheet = getOrCreateSheet_(ss, 'log'); //
 
     // 1) logからデータ取得とライン名抽出
-    const log = readSheetAsObjects_(logSheet); // logデータは後で使う
-    const lineNames = Array.from(new Set(log.map(r => String(r.line || '').trim()))).filter(Boolean).sort();
-    if (lineNames.length === 0) LOG.warn('logシートにラインデータがありません。'); // エラーにはしない
+    const log = readSheetAsObjects_(logSheet); //
+    const lineNames = Array.from(new Set(log.map(r => String(r.line || '').trim()))).filter(Boolean).sort(); //
+    if (lineNames.length === 0) LOG.warn('logシートにラインデータがありません。'); //
 
     // 2) ★★★ 全期間の日付リストを生成 (config.monthsAhead を使用) ★★★
-    const allDates = [];
-    const today = new Date();
+    const allDates = []; //
+    const today = new Date(); //
     today.setHours(0,0,0,0);
-    const startMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const endMonth = new Date(today.getFullYear(), today.getMonth() + CONFIG.monthsAhead + 1, 0); // monthsAhead+1ヶ月の末日
-
-    let currentDate = new Date(startMonth);
-    while (currentDate <= endMonth) {
+    const startMonth = new Date(today.getFullYear(), today.getMonth(), 1); //
+    const endMonth = new Date(today.getFullYear(), today.getMonth() + CONFIG.monthsAhead + 1, 0); //
+    
+    let currentDate = new Date(startMonth); //
+    while (currentDate <= endMonth) { //
       allDates.push(new Date(currentDate));
-      currentDate.setDate(currentDate.getDate() + 1);
+      currentDate.setDate(currentDate.getDate() + 1); //
     }
-    if (allDates.length === 0) throw new Error('処理対象期間の日付が取得できませんでした。');
+    if (allDates.length === 0) throw new Error('処理対象期間の日付が取得できませんでした。'); //
 
     LOG.info(`カレンダー期間: ${normalizeDateKey_(allDates[0])} ～ ${normalizeDateKey_(allDates[allDates.length - 1])}（${allDates.length}日）`);
-    LOG.info(`ライン数: ${lineNames.length}`);
+    LOG.info(`ライン数: ${lineNames.length}`); //
 
     // 3) calendarシート初期化（ヘッダ/罫線/列幅/データ行書式）
-    clearAndInitializeCalendar_(calendarSheet, allDates, lineNames, CONFIG); // 修正版を呼び出す
-
+    clearAndInitializeCalendar_(calendarSheet, allDates, lineNames, CONFIG); //
+    
     // 4) データを配置 (logデータを使用)
-    placeDataOnCalendar_(calendarSheet, allDates, lineNames, log, CONFIG); // 修正版を呼び出す
+    placeDataOnCalendar_(calendarSheet, allDates, lineNames, log, CONFIG); //
 
-    // 5) 列幅（まとめて） - 1日4列 (B, C, D, E) 用に調整
+    // 5) 列幅（まとめて）
     try {
       allDates.forEach((d, i) => {
         const baseCol = CONFIG_LOCAL.START_COL + i * CONFIG_LOCAL.COLS_PER_DAY; // B, F, J...
@@ -269,17 +269,47 @@ function outputToCalendar() {
         if (baseCol + 3 > 0) calendarSheet.setColumnWidth(baseCol + 3, 50); // E列 (calc)
       });
     } catch (e) {
-      LOG.warn(`列幅調整をスキップ: ${e.message}`);
+      LOG.warn(`列幅調整をスキップ: ${e.message}`); //
     }
 
     LOG.info('calendar出力 完了');
-    SpreadsheetApp.getUi().alert('calendarへの出力が完了しました。');
-  } catch (e) {
-    LOG.error(`outputToCalendar: ${e.message}\n${e.stack}`);
-    SpreadsheetApp.getUi().alert('エラー: ' + e.message);
-  }
-} // ★★★ `outputToCalendar` 関数はここで終了 ★★★
+      
+    try {
+      // 1. log.csv を Input/Master フォルダに保存 (Python 2.py 用)
+      LOG.info('-> (追加処理 1/3) log.csv を Input/Master に保存中...');
+      saveLogToInputMaster_(); // (csv.gs で定義した関数)
 
+      // 2. log.csv をバックアップ (日付フォルダ)
+      LOG.info('-> (追加処理 2/3) backupLogSheet (日付別バックアップ) を実行中...');
+      backupLogSheet(); // (csv.gs の関数)
+
+      // 3. log を archive に「上書き」し、log をクリア
+      LOG.info('-> (追加処理 3/3) archiveLogData (アーカイブ上書き) を実行中...');
+      archiveLogData(); // (Archive.gs の修正版関数)
+
+      LOG.info('-> (追加処理) 全て完了');
+      SpreadsheetApp.getUi().alert(
+        'calendarへの出力が完了しました。\n\n' +
+        '続けて、以下の処理を実行しました:\n' +
+        '1. log.csv を Input/Master (Python用) に保存\n' +
+        '2. log.csv を 日付別フォルダにバックアップ\n' +
+        '3. log データを archive に上書き (logシートはクリアされました)'
+      );
+
+    } catch (e) {
+        LOG.error(`outputToCalendar (追加処理中): ${e.message}\n${e.stack}`);
+        SpreadsheetApp.getUi().alert(
+           'calendar出力は完了しましたが、その後の追加処理 (CSV保存/アーカイブ) に失敗しました。\n\n' +
+           'エラー: ' + e.message
+        );
+    }
+    // [Source: 250] (元のアラートは上記のアラートに統合)
+    
+  } catch (e) {
+    LOG.error(`outputToCalendar: ${e.message}\n${e.stack}`); //
+    SpreadsheetApp.getUi().alert('エラー: ' + e.message);
+  } //
+} 
 
 /**
  * ========= 4. シートを月順にソート（yyyy/mm 形式） =========
@@ -562,11 +592,10 @@ function clearAndInitializeCalendar_(sheet, allDates, lineNames, cfg) {
   sheet.setFrozenColumns(1);
 
   Logger.log("カレンダー初期化完了");
-} // ★★★ `clearAndInitializeCalendar_` 関数はここで終了 ★★★
-
+}
 
 // データ配置（'calendar'シート出力用ヘルパー）
-// (★★★ 修正版：書き込み開始行をラインごとに計算 ★★★)
+
 function placeDataOnCalendar_(sheet, allDates, lineNames, logData, cfg) { // cfg には CONFIG オブジェクト全体が渡される想定
   Logger.log("データ配置開始...");
 
@@ -648,4 +677,4 @@ function placeDataOnCalendar_(sheet, allDates, lineNames, logData, cfg) { // cfg
   });
 
   Logger.log(`データ配置完了: ${totalWritten}件`);
-} // ★★★ `placeDataOnCalendar_` 関数はここで終了 ★★★
+}

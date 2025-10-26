@@ -54,7 +54,6 @@ function exportAllSheetsForPython() {
 }
 
 /**
- * ★★★ 修正版 ★★★
  * 'log'シートをCSVとしてDriveにバックアップします
  * (config.gs の BACKUP_BASE_PATH 配下 /yyyyMMdd/log.csv として保存)
  */
@@ -95,7 +94,6 @@ function backupLogSheet() {
 }
 
 /**
- * ★★★ 修正版 ★★★
  * DriveのCSVを'log'シートに復元します（日付フォルダを指定）
  */
 function restoreLogFromBackupPrompt() {
@@ -216,7 +214,6 @@ function findFileByNameInFolder_(name, folderId) {
 
 /**
  * フォルダパスからフォルダを取得または作成 ( / 区切り)
- * (k-yamano/scheduler/Scheduler-d49c4aa1a460538eba9890a2a090d6093dd546cc/csv.gs から移植・修正)
  */
 function getOrCreateFolderByPath_(folderPath) {
   try {
@@ -238,5 +235,47 @@ function getOrCreateFolderByPath_(folderPath) {
   } catch (e) {
     LOG.error(`getOrCreateFolderByPath_: フォルダパス '${folderPath}' の処理に失敗. ${e.message}`);
     return null;
+  }
+}
+
+// [csv.gs の末尾に以下の関数を追加]
+
+/**
+ * logシートをCSVとして Python入力フォルダ (Input/Master) に保存
+ * (2.py の INPUT_DIR 向け)
+ */
+function saveLogToInputMaster_() {
+  try {
+    LOG.info('saveLogToInputMaster_ 開始');
+    const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId); //
+    const sheet = getOrCreateSheet_(ss, 'log'); //
+    const values = sheet.getDataRange().getValues();
+    if (values.length <= 1) { //
+      throw new Error('logシートが空かヘッダーのみです。');
+    }
+    const csv = toCsv_(values); //
+    
+    // 2.py の '/content/drive/My Drive/dp_Scheduler/Input/Master/' に対応
+    const folderPath = 'dp_Scheduler/Input/Master';
+    
+    const folder = getOrCreateFolderByPath_(folderPath); //
+    if (!folder) {
+       throw new Error(`フォルダパス ${folderPath} が見つかりません。`);
+    }
+    
+    const fileName = 'log.csv'; //
+    
+    // 既存ファイル削除
+    const iter = folder.getFilesByName(fileName); //
+    while (iter.hasNext()) iter.next().setTrashed(true);
+    
+    folder.createFile(fileName, csv, MimeType.CSV);
+    
+    LOG.info(`  -> ${folderPath}/${fileName} に log.csv を保存しました。`);
+
+  } catch (e) {
+     LOG.error(`saveLogToInputMaster_: ${e.message}`);
+     // エラーを再スローして、呼び出し元の関数 (outputToCalendar) でキャッチできるようにする
+     throw e;
   }
 }
