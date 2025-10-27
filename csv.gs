@@ -3,23 +3,10 @@
  * CSVのインポート・エクスポートに関するすべての機能を集約
  *******************************************/
 
-/**
- * 複数のシートをPython入力用にCSVエクスポートします
- * (logformtest.txt の exportAllSheetsForPython 相当)
- */
 function exportAllSheetsForPython() {
   try {
     LOG.info('exportAllSheetsForPython 開始');
     const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
-    
-    // (注: CONFIGに pythonInFolderId と SHEET_NAMES の定義が必要です)
-    // config.gs に以下を追加してください:
-    // pythonInFolderId: 'YOUR_PYTHON_INPUT_FOLDER_ID',
-    // SHEET_NAMES: {
-    //   MAIN: 'main_sheet', // (例)
-    //   LOG: 'log',
-    //   CAL: 'calendar'
-    // },
 
     if (!CONFIG.pythonInFolderId || !CONFIG.SHEET_NAMES) {
       throw new Error('config.gsに pythonInFolderId または SHEET_NAMES が設定されていません。');
@@ -40,7 +27,7 @@ function exportAllSheetsForPython() {
       const values = t.sheet.getDataRange().getValues();
       const csv = toCsv_(values);
       const iter = folder.getFilesByName(t.name);
-      while (iter.hasNext()) iter.next().setTrashed(true); // 既存ファイル削除
+      while (iter.hasNext()) iter.next().setTrashed(true);
       folder.createFile(t.name, csv, MimeType.CSV);
       LOG.info(`  -> ${t.name} を出力完了 (${values.length}行)`);
     });
@@ -53,38 +40,25 @@ function exportAllSheetsForPython() {
   }
 }
 
-/**
- * 'log'シートをCSVとしてDriveにバックアップします
- * (config.gs の BACKUP_BASE_PATH 配下 /yyyyMMdd/log.csv として保存)
- */
 function backupLogSheet() {
   try {
     LOG.info('logシートのバックアップ 開始');
     const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
     const sheet = getOrCreateSheet_(ss, 'log');
     const values = sheet.getDataRange().getValues();
-    if (values.length <= 1) { // ヘッダーのみの場合も除外
-      throw new Error('logシートが空かヘッダーのみです。');
-    }
+    if (values.length <= 1) throw new Error('logシートが空かヘッダーのみです。');
 
     const csv = toCsv_(values);
-    
-    // 1. yyyymmdd フォルダパスを作成
-    const today = Utilities.formatDate(new Date(), TZ, 'yyyyMMdd');
+    const tz  = Session.getScriptTimeZone();
+    const today = Utilities.formatDate(new Date(), tz, 'yyyyMMdd');
     const folderPath = CONFIG.BACKUP_BASE_PATH + '/' + today;
-    
-    // 2. フォルダを取得または作成 (このファイルの下部にあるヘルパー関数)
-    const folder = getOrCreateFolderByPath_(folderPath); 
-    
-    // 3. 'log.csv' という名前で保存
+
+    const folder = getOrCreateFolderByPath_(folderPath);
     const fileName = 'log.csv';
-    
-    // 4. 既存ファイルを削除 (同じ日に複数回バックアップした場合の上書き)
     const iter = folder.getFilesByName(fileName);
     while (iter.hasNext()) iter.next().setTrashed(true);
-    
     folder.createFile(fileName, csv, MimeType.CSV);
-    
+
     LOG.info(`バックアップ完了: ${folderPath}/${fileName}`);
     SpreadsheetApp.getUi().alert(`logシートをDriveにバックアップしました:\n${folderPath}/${fileName}`);
   } catch (e) {
@@ -93,42 +67,28 @@ function backupLogSheet() {
   }
 }
 
-/**
- * DriveのCSVを'log'シートに復元します（日付フォルダを指定）
- */
 function restoreLogFromBackupPrompt() {
   const ui = SpreadsheetApp.getUi();
-  const todayStr = Utilities.formatDate(new Date(), TZ, 'yyyyMMdd');
+  const tz = Session.getScriptTimeZone();
+  const todayStr = Utilities.formatDate(new Date(), tz, 'yyyyMMdd');
   const resp = ui.prompt('CSV復元', `復元したい日付（フォルダ名）を入力してください。\n(例: ${todayStr})`, ui.ButtonSet.OK_CANCEL);
-  
   if (resp.getSelectedButton() !== ui.Button.OK) return;
   const dateFolder = String(resp.getResponseText() || '').trim();
   if (!dateFolder) return;
 
   try {
     LOG.info(`CSV復元（${dateFolder}） 開始`);
-    
-    // 1. フォルダパスを構築
     const folderPath = CONFIG.BACKUP_BASE_PATH + '/' + dateFolder;
-    const folder = getOrCreateFolderByPath_(folderPath); // 存在確認
+    const folder = getOrCreateFolderByPath_(folderPath);
     if (!folder) throw new Error(`フォルダ ${folderPath} が見つかりません。`);
 
-    // 2. フォルダ内の 'log.csv' を探す
     const fileName = 'log.csv';
-    // findFileByNameInFolder_ はフォルダIDが必要
-    const file = findFileByNameInFolder_(fileName, folder.getId()); 
-    
-    if (!file) {
-      throw new Error(`フォルダ ${folderPath} 内に ${fileName} が見つかりません。`);
-    }
+    const file = findFileByNameInFolder_(fileName, folder.getId());
+    if (!file) throw new Error(`フォルダ ${folderPath} 内に ${fileName} が見つかりません。`);
 
-    // 3. CSVを読み込む
     const csv = readCsvFromDrive_(file.getId());
-    if (!csv || csv.length === 0) {
-      throw new Error('CSVが空、または読込に失敗しました。');
-    }
+    if (!csv || csv.length === 0) throw new Error('CSVが空、または読込に失敗しました。');
 
-    // 4. logシートに復元
     const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
     const sheet = getOrCreateSheet_(ss, 'log');
     sheet.clear({ contentsOnly: true });
@@ -141,141 +101,143 @@ function restoreLogFromBackupPrompt() {
     ui.alert('エラー: ' + e.message);
   }
 }
-// =======================================
-// 共通ユーティリティ関数（他ファイルから移植）
-// =======================================
 
+// =============== 追加：workday.csv 出力（calendar から移管） ===============
 /**
- * 2次元配列 → CSV文字列（単純版）
- * (LogFrom.gs / logformtest.txt から移植)
+ * 稼働日(Date[])を "MM/dd" のCSVにして、
+ * CONFIG.calendarOutputFolderId / CONFIG.calendarOutputFileName に保存
+ * @param {Date[]} workingDays
+ * @param {string} tz 可変：指定なければスクリプトTZ
  */
+function exportWorkdaysCsvDates(workingDays, tz) {
+  if (!CONFIG.calendarOutputFolderId) throw new Error('CONFIG.calendarOutputFolderId が未設定です。');
+  if (!CONFIG.calendarOutputFileName) throw new Error('CONFIG.calendarOutputFileName が未設定です。');
+  if (!workingDays || workingDays.length === 0) {
+    LOG.info('exportWorkdaysCsvDates: 稼働日データなし→出力スキップ');
+    return;
+  }
+
+  const tzUse = tz || Session.getScriptTimeZone();
+  const formatted = workingDays.map(d => Utilities.formatDate(d, tzUse, 'MM/dd'));
+  const csvContent = formatted.join(',');
+
+  let outputFolder;
+  try {
+    outputFolder = DriveApp.getFolderById(CONFIG.calendarOutputFolderId);
+  } catch (e) {
+    throw new Error(`フォルダID "${CONFIG.calendarOutputFolderId}" が無効かアクセス権なし: ${e.message}`);
+  }
+
+  const name = CONFIG.calendarOutputFileName;
+  const files = outputFolder.getFilesByName(name);
+  while (files.hasNext()) {
+    const f = files.next();
+    LOG.info(`既存ファイル "${name}" (ID: ${f.getId()}) を削除`);
+    f.setTrashed(true);
+  }
+  const newFile = outputFolder.createFile(name, csvContent, MimeType.CSV);
+  LOG.info(`✓ 稼働日CSV作成: "${name}" (ID: ${newFile.getId()}) in ${outputFolder.getName()}`);
+}
+
+// =======================================
+// 共通ユーティリティ（既存）
+// =======================================
 function toCsv_(values) {
   return values
-    .map(row =>
-      row
-        .map(v => {
-          const s = v === null || v === undefined ? '' : String(v);
-          // ダブルクォート/カンマ/改行がある場合はクォート
-          if (/[",\n]/.test(s)) {
-            return `"${s.replace(/"/g, '""')}"`;
-          }
-          return s;
-        })
-        .join(',')
-    )
+    .map(row => row
+      .map(v => {
+        const s = v === null || v === undefined ? '' : String(v);
+        if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      })
+      .join(','))
     .join('\n');
 }
 
-/**
- * CSV読み込み（UTF-8→失敗ならShift_JIS）
- * (LogFrom.gs / logformtest.txt から移植)
- */
 function readCsvFromDrive_(fileId) {
   const file = DriveApp.getFileById(fileId);
   let text = file.getBlob().getDataAsString('UTF-8');
-  if (!text || text.indexOf('\uFFFD') !== -1) { // 文字化けの簡易検知
-    LOG.warn(`readCsvFromDrive_: UTF-8デコード失敗 (FileID: ${fileId}). Shift_JISで再試行します。`);
+  if (!text || text.indexOf('\uFFFD') !== -1) {
+    LOG.warn(`readCsvFromDrive_: UTF-8失敗。Shift_JISで再試行 (FileID: ${fileId})`);
     text = file.getBlob().getDataAsString('Shift_JIS');
   }
   return Utilities.parseCsv(text);
 }
 
-/**
- * シート取得（無ければ作成）
- * (LogFrom.gs / logformtest.txt から移植)
- */
 function getOrCreateSheet_(ss, name) {
-  if (!name || String(name).trim() === "") {
-     LOG.warn(`getOrCreateSheet_: シート名が空です。`);
-     return null; // またはエラーをスロー
+  if (!name || String(name).trim() === '') {
+    LOG.warn('getOrCreateSheet_: シート名が空');
+    return null;
   }
   let sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
-    LOG.info(`getOrCreateSheet_: シート "${name}" を新規作成しました。`);
+    LOG.info(`getOrCreateSheet_: シート "${name}" 作成`);
   }
   return sh;
 }
 
-/**
- * Driveフォルダ内でファイル名検索（最初の1件）
- * (logformtest.txt から移植)
- */
 function findFileByNameInFolder_(name, folderId) {
   try {
     const folder = DriveApp.getFolderById(folderId);
     const iter = folder.getFilesByName(name);
     return iter.hasNext() ? iter.next() : null;
   } catch (e) {
-    LOG.error(`findFileByNameInFolder_: フォルダ検索エラー (ID: ${folderId}, Name: ${name}). ${e.message}`);
+    LOG.error(`findFileByNameInFolder_: エラー (ID: ${folderId}, Name: ${name}). ${e.message}`);
     return null;
   }
 }
 
-/**
- * フォルダパスからフォルダを取得または作成 ( / 区切り)
- */
 function getOrCreateFolderByPath_(folderPath) {
   try {
     const folders = folderPath.split('/');
     let currentFolder = DriveApp.getRootFolder();
-    
     for (const folderName of folders) {
       if (!folderName) continue;
-      
       const subFolders = currentFolder.getFoldersByName(folderName);
-      if (subFolders.hasNext()) {
-        currentFolder = subFolders.next();
-      } else {
-        currentFolder = currentFolder.createFolder(folderName);
-        LOG.info(`  -> フォルダを作成しました: ${currentFolder.getPath()}`);
-      }
+      currentFolder = subFolders.hasNext() ? subFolders.next() : currentFolder.createFolder(folderName);
     }
     return currentFolder;
   } catch (e) {
-    LOG.error(`getOrCreateFolderByPath_: フォルダパス '${folderPath}' の処理に失敗. ${e.message}`);
+    LOG.error(`getOrCreateFolderByPath_: 失敗 '${folderPath}'. ${e.message}`);
     return null;
   }
 }
 
-// [csv.gs の末尾に以下の関数を追加]
-
-/**
- * logシートをCSVとして Python入力フォルダ (Input/Master) に保存
- * (2.py の INPUT_DIR 向け)
- */
 function saveLogToInputMaster_() {
   try {
     LOG.info('saveLogToInputMaster_ 開始');
-    const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId); //
-    const sheet = getOrCreateSheet_(ss, 'log'); //
+    const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
+    const sheet = getOrCreateSheet_(ss, 'log');
     const values = sheet.getDataRange().getValues();
-    if (values.length <= 1) { //
-      throw new Error('logシートが空かヘッダーのみです。');
-    }
-    const csv = toCsv_(values); //
-    
-    // 2.py の '/content/drive/My Drive/dp_Scheduler/Input/Master/' に対応
-    const folderPath = 'dp_Scheduler/Input/Master';
-    
-    const folder = getOrCreateFolderByPath_(folderPath); //
-    if (!folder) {
-       throw new Error(`フォルダパス ${folderPath} が見つかりません。`);
-    }
-    
-    const fileName = 'log.csv'; //
-    
-    // 既存ファイル削除
-    const iter = folder.getFilesByName(fileName); //
-    while (iter.hasNext()) iter.next().setTrashed(true);
-    
-    folder.createFile(fileName, csv, MimeType.CSV);
-    
-    LOG.info(`  -> ${folderPath}/${fileName} に log.csv を保存しました。`);
+    if (values.length <= 1) throw new Error('logシートが空かヘッダーのみです。');
 
+    const headers = values[0].map(h => String(h || '').trim());
+    const dayIdx = headers.indexOf('day');
+    const tsIdx  = headers.indexOf('Timestamp');
+    const tz = Session.getScriptTimeZone();
+
+    const formatted = values.map((row, rowIndex) => {
+      if (rowIndex === 0) return row;
+      const newRow = row.slice();
+      if (dayIdx >= 0 && newRow[dayIdx] instanceof Date) newRow[dayIdx] = Utilities.formatDate(newRow[dayIdx], tz, 'yyyy/MM/dd');
+      if (tsIdx  >= 0 && newRow[tsIdx]  instanceof Date) newRow[tsIdx]  = Utilities.formatDate(newRow[tsIdx],  tz, 'yyyy/MM/dd HH:mm:ss');
+      return newRow;
+    });
+
+    const csv = toCsv_(formatted);
+    const folderPath = 'dp_Scheduler/Input/Master';
+    const folder = getOrCreateFolderByPath_(folderPath);
+    if (!folder) throw new Error(`フォルダパス ${folderPath} が見つかりません。`);
+
+    const fileName = 'log.csv';
+    const iter = folder.getFilesByName(fileName);
+    while (iter.hasNext()) iter.next().setTrashed(true);
+    folder.createFile(fileName, csv, MimeType.CSV);
+
+    LOG.info(`  -> ${folderPath}/${fileName} に log.csv を保存しました。`);
   } catch (e) {
-     LOG.error(`saveLogToInputMaster_: ${e.message}`);
-     // エラーを再スローして、呼び出し元の関数 (outputToCalendar) でキャッチできるようにする
-     throw e;
+    LOG.error(`saveLogToInputMaster_: ${e.message}`);
+    throw e;
   }
 }
