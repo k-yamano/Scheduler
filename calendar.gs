@@ -1,10 +1,104 @@
-const ODD_ROW_COLOR = '#e6f4ea'; // 薄い緑
+/*function protectEvenRows(sheet, startRow) {
+  const START_ROW = startRow || 4;
+  const lastRow = sheet.getLastRow();
+  const startCol = CONFIG.calendarStartCol || 7; // G列デフォルト
+  const lastCol = sheet.getLastColumn();
+  
+  if (lastRow < START_ROW || lastCol < startCol) return;
+  
+  // 既存の保護を削除
+  const DESC = 'Even rows protected';
+  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  protections.filter(p => p.getDescription() === DESC).forEach(p => p.remove());
+  
+  // シート全体を保護してから除外範囲を設定する方式
+  const sheetProtection = sheet.protect();
+  sheetProtection.setDescription(DESC);
+  
+  // 奇数行のみ編集可能セルとして設定
+  const unprotectedRanges = [];
+  for (let r = START_ROW; r <= lastRow; r++) {
+    if (r % 2 !== 0) { // 奇数行
+      unprotectedRanges.push(sheet.getRange(r, startCol, 1, lastCol - startCol + 1));
+    }
+  }
+  
+  // 保護解除範囲を一括設定
+  if (unprotectedRanges.length > 0) {
+    sheetProtection.setUnprotectedRanges(unprotectedRanges);
+  }
+  
+  // 編集者を削除（オーナーのみ編集可能）
+  const editors = sheetProtection.getEditors();
+  if (editors.length > 0) {
+    sheetProtection.removeEditors(editors);
+  }
+  
+  Logger.log(`${sheet.getName()}: シート保護を設定し、${unprotectedRanges.length}個の奇数行を除外`);
+}
+
+// さらに高速化が必要な場合の代替案
+function protectEvenRowsV2(sheet, startRow) {
+  const START_ROW = startRow || 4;
+  const lastRow = sheet.getLastRow();
+  const startCol = CONFIG.calendarStartCol || 7;
+  const lastCol = sheet.getLastColumn();
+  
+  if (lastRow < START_ROW || lastCol < startCol) return;
+  
+  const DESC = 'Even rows protected';
+  const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  protections.filter(p => p.getDescription() === DESC).forEach(p => p.remove());
+  
+  // A1記法で範囲を効率的に生成
+  const colStart = columnToLetter(startCol);
+  const colEnd = columnToLetter(lastCol);
+  const rangeList = [];
+  
+  for (let r = START_ROW; r <= lastRow; r++) {
+    if (r % 2 === 0) { // 偶数行
+      rangeList.push(`${colStart}${r}:${colEnd}${r}`);
+    }
+  }
+  
+  // RangeListを使って一括保護（50行ずつ処理）
+  const BATCH_SIZE = 50;
+  for (let i = 0; i < rangeList.length; i += BATCH_SIZE) {
+    const batch = rangeList.slice(i, i + BATCH_SIZE);
+    const ranges = sheet.getRangeList(batch).getRanges();
+    
+    ranges.forEach(range => {
+      const prot = range.protect();
+      prot.setDescription(DESC);
+      prot.removeEditors(prot.getEditors());
+    });
+    
+    // API制限回避のため少し待機
+    if (i + BATCH_SIZE < rangeList.length) {
+      Utilities.sleep(100);
+    }
+  }
+  
+  Logger.log(`${sheet.getName()}: ${rangeList.length}個の偶数行を保護完了`);
+}
+
+// 列番号をA1記法に変換
+function columnToLetter(column) {
+  let temp, letter = '';
+  while (column > 0) {
+    temp = (column - 1) % 26;
+    letter = String.fromCharCode(temp + 65) + letter;
+    column = (column - temp - 1) / 26;
+  }
+  return letter;
+}
+*/
 
 // ========== ユーティリティ ==========
 
-/**
- * 処理対象月とその範囲、シート名を取得
- */
+// 奇数行の背景色
+const ODD_ROW_COLOR = '#f3f3f3'; // 薄いグレー（お好みの色に変更可能）
+
 function _getMonthsToProcess() {
   const today = new Date();
   const ranges = [];
@@ -21,9 +115,6 @@ function _getMonthsToProcess() {
   return ranges;
 }
 
-/**
- * Dateオブジェクト配列から重複を除去しソート
- */
 function _getUniqueSortedDates(dates) {
   if (!dates || dates.length === 0) return [];
   const uniqueTimestamps = {};
@@ -33,12 +124,11 @@ function _getUniqueSortedDates(dates) {
   return uniqueDates;
 }
 
-// ========== メイン処理 (手動実行用) ==========
-
+// ========== メイン処理 ==========
 /**
- * メイン関数: カレンダー更新、在庫計算、書式設定、CSV出力を実行
+ * メイン関数: カレンダー更新、在庫計算、書式設定、CSV出力、偶数行ロック
  */
-function updateCalendar() { // 旧: exportCalendarToSheetManual
+function updateCalendar() {
   const monthlyRanges = _getMonthsToProcess();
   const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
   const tz = ss.getSpreadsheetTimeZone(); // タイムゾーン取得
@@ -73,7 +163,7 @@ function updateCalendar() { // 旧: exportCalendarToSheetManual
   // --- 2) 在庫予測計算 ---
   Logger.log('\n--- 2. 在庫予測計算 開始 ---');
   try {
-    calculateInventory(); // 旧: processMonthlySheets
+    calculateInventory();
     Logger.log('✓ 在庫予測計算 完了');
   } catch (e) {
     Logger.log(`!!! 在庫予測計算エラー: ${e.message}\n${e.stack}`);
@@ -89,11 +179,11 @@ function updateCalendar() { // 旧: exportCalendarToSheetManual
   });
   Logger.log('✓ 奇数行 背景色設定 完了');
 
-  // --- 4) 稼働日CSV出力 ---
+  // --- 4) 稼働日CSV出力（csv.gsへ移管） ---
   Logger.log('\n--- 4. 稼働日CSV出力 開始 ---');
   try {
     const uniqueSortedWorkingDays = _getUniqueSortedDates(allWorkingDays);
-    _exportWorkdaysCsv(uniqueSortedWorkingDays, tz); // タイムゾーンを渡す
+    exportWorkdaysCsvDates(uniqueSortedWorkingDays, tz); // csv.gs の関数
     Logger.log('✓ 稼働日CSV出力 完了');
   } catch (e) {
     Logger.log(`!!! CSV出力エラー: ${e.message}\n${e.stack}`);
@@ -101,16 +191,25 @@ function updateCalendar() { // 旧: exportCalendarToSheetManual
     return; // CSV出力失敗時はここで終了
   }
 
+  /* --- 5) 偶数行ロック（全対象シート） ---
+  Logger.log('\n--- 5. 偶数行ロック 開始 ---');
+  monthlyRanges.forEach(range => {
+    const s = ss.getSheetByName(range.sheetName);
+    if (s) protectEvenRows(s, 4); // 偶数行ロック開始行は4（必要なら5に変更可能）
+    
+    });
+
+  Logger.log('✓ 偶数行ロック 完了'); */
+
   Logger.log('\n--- 全処理 正常終了 ---');
-  SpreadsheetApp.getUi().alert('完了', 'カレンダー更新、在庫予測計算、背景色設定、CSV出力が完了しました', SpreadsheetApp.getUi().ButtonSet.OK);
+  SpreadsheetApp.getUi().alert('完了', 'カレンダー更新、在庫予測計算、背景色設定、CSV出力、偶数行ロックが完了しました', SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // ========== 背景色設定 ==========
-
 /**
  * 指定シートの5行目以降、G列以降の奇数行に背景色を設定
  */
-function _formatOddRows(sheet) { // 旧: applyOddRowFormatting
+function _formatOddRows(sheet) {
   try {
     const startRow = 5; // 5行目から
     const startCol = CONFIG.calendarStartCol; // G列
@@ -143,11 +242,10 @@ function _formatOddRows(sheet) { // 旧: applyOddRowFormatting
 }
 
 // ========== カレンダー描画 ==========
-
 /**
  * 指定シートのG列以降にカレンダーヘッダを描画し、稼働日リストを返す
  */
-function _drawCalendar(sheet, startDate, endDate, isFirstSheet, today, tz) { // 旧: exportCalendarToSheet
+function _drawCalendar(sheet, startDate, endDate, isFirstSheet, today, tz) {
   let workingDaysForCsv = []; // 稼働日(Date)リスト
 
   try {
@@ -287,48 +385,7 @@ function _drawCalendar(sheet, startDate, endDate, isFirstSheet, today, tz) { // 
   return { workingDays: workingDaysForCsv };
 }
 
-
-// ========== 稼働日CSV出力 ==========
-
-/**
- * 稼働日リスト(Date[])をCSVとしてDriveに出力
- */
-function _exportWorkdaysCsv(workingDays, tz) { // 旧: exportWorkingDaysToCsv
-  if (!CONFIG.calendarOutputFolderId || CONFIG.calendarOutputFolderId === 'YOUR_FOLDER_ID_HERE') {
-    throw new Error('CONFIG.calendarOutputFolderId が未設定です。');
-  }
-  if (!workingDays || workingDays.length === 0) {
-    Logger.log('CSV出力スキップ: 稼働日データがありません。');
-    return;
-  }
-
-  // Date[] -> "MM/dd"[]
-  const formattedDates = workingDays.map(d => Utilities.formatDate(d, tz, 'MM/dd'));
-  const csvContent = formattedDates.join(','); // カンマ区切り
-
-  let outputFolder;
-  try {
-    outputFolder = DriveApp.getFolderById(CONFIG.calendarOutputFolderId);
-  } catch (e) {
-    throw new Error(`フォルダID "${CONFIG.calendarOutputFolderId}" が無効かアクセス権がありません: ${e.message}`);
-  }
-
-  // 既存ファイル削除 (上書き)
-  const files = outputFolder.getFilesByName(CONFIG.calendarOutputFileName);
-  while (files.hasNext()) {
-    const f = files.next();
-    Logger.log(`既存ファイル "${CONFIG.calendarOutputFileName}" (ID: ${f.getId()}) を削除`);
-    f.setTrashed(true); // ゴミ箱へ
-  }
-
-  // 新規作成
-  const newFile = outputFolder.createFile(CONFIG.calendarOutputFileName, csvContent, MimeType.CSV);
-  Logger.log(`✓ 稼働日CSV作成: "${CONFIG.calendarOutputFileName}" (ID: ${newFile.getId()})`);
-  Logger.log(`  場所: ${outputFolder.getName()} フォルダ`);
-  Logger.log(`  内容(先頭): ${csvContent.substring(0, 50)}...`);
-}
-
-
+// ========== 在庫予測 ==========
 /**
  * ★ 修正版: 各月シートのG列以降に在庫予測数式を設定
  * G列: 偶数行=前月最終列+下セル参照 (例: ='2025/10'!AC6+G7), 奇数行=空欄
@@ -415,32 +472,23 @@ function calculateInventory() {
         Logger.log(`${sheetName}: シート1のためG列への繰越数式設定はスキップ`);
     }
 
-    // ====== 数式を設定する開始列を決定 (H列以降 or 今日列以降) ======
     // ====== 数式を設定する開始列を決定 (H列以降 or 今日列以降 / 今日が公休なら過去の稼働日) ======
     let formulaStartCol = -1; // -1 = 設定しない
     if (i === 0) { // 最初のシート
       if (lastCol >= CONFIG.calendarStartCol) { // G列以降が存在する場合
         // 2行目(日付行)の値を取得 (G列から最終列まで)
         const dateHeaderRange = sheet.getRange(2, CONFIG.calendarStartCol, 1, lastCol - CONFIG.calendarStartCol + 1);
-        const dateRowValues = dateHeaderRange.getDisplayValues()[0]; // 日付文字列の配列 ['1', '2', '3', '5', ...]
-        const dateRowFormulas = dateHeaderRange.getFormulasR1C1()[0]; // 数式も取得 (もし日付が数式なら) - 必要に応じて
+        const dateRowValues = dateHeaderRange.getDisplayValues()[0]; // 日付文字列の配列
+        let todayColIndexInHeader = dateRowValues.findIndex(dayStr => (dayStr + '').trim() === todayDayStr);
 
-        let todayColIndexInHeader = -1; // G列以降のヘッダー内でのインデックス (0始まり)
-
-        // --- まず今日の日付を探す ---
-        todayColIndexInHeader = dateRowValues.findIndex(dayStr => (dayStr + '').trim() === todayDayStr);
-
-        // --- 今日が見つからない場合（公休等）、今日より前の最も近い稼働日を検索 ---
+        // 今日が見つからない場合（公休等）、今日より前の最も近い稼働日を検索
         if (todayColIndexInHeader === -1) {
           Logger.log(`${sheetName}: 今日の日付(${todayDayStr})がヘッダーに見つかりません (公休の可能性)。過去の稼働日を探します...`);
-          // G列から逆方向にループ
           for (let colOffset = dateRowValues.length - 1; colOffset >= 0; colOffset--) {
             const currentDayStr = (dateRowValues[colOffset] + '').trim();
-            // 数字かどうかチェック (より堅牢にするなら正規表現など)
             if (/^\d+$/.test(currentDayStr)) {
                const currentDayNum = parseInt(currentDayStr, 10);
-               // 今日の日付以下の稼働日が見つかったら採用
-               if (currentDayNum <= today.getDate()) { // ここでは単純に「日」だけで比較（月が変わる場合は別途考慮が必要）
+               if (currentDayNum <= today.getDate()) {
                   todayColIndexInHeader = colOffset;
                   Logger.log(`${sheetName}: 今日以前の最も近い稼働日を発見 → ${currentDayStr}日 (${CONFIG.calendarStartCol + colOffset}列目)`);
                   break;
@@ -449,10 +497,9 @@ function calculateInventory() {
           }
         }
 
-        // --- 開始列を決定 ---
+        // 開始列を決定
         if (todayColIndexInHeader !== -1) {
           formulaStartCol = CONFIG.calendarStartCol + todayColIndexInHeader; // G列 + オフセット
-          // ★ もし開始列がG列なら、H列からにする (これは元のロジックを踏襲)
           if (formulaStartCol === CONFIG.calendarStartCol) {
               formulaStartCol = CONFIG.calendarStartCol + 1; // H列
               Logger.log(`${sheetName}: 開始列がG列のため、数式設定は H列(${formulaStartCol}) から開始`);
@@ -480,7 +527,7 @@ function calculateInventory() {
         if (currentRow % 2 !== 0) return Array(numFormulaCols).fill(""); // ★ 奇数行は空欄
 
         // 偶数行は数式文字列 (R1C1形式)
-        return Array.from({ length: numFormulaCols }, (__, c) => {
+        return Array.from({ length: numFormulaCols }, () => {
           // =左セル-日割(D列)+入庫(次行同列)
           return `=R[0]C[-1]-N(R[0]C4)+N(R[1]C[0])`;
         });
