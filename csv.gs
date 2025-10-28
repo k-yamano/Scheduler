@@ -7,7 +7,6 @@ function exportAllSheetsForPython() {
   try {
     LOG.info('exportAllSheetsForPython 開始');
     const ss = SpreadsheetApp.openById(CONFIG.targetSpreadsheetId);
-
     if (!CONFIG.pythonInFolderId || !CONFIG.SHEET_NAMES) {
       throw new Error('config.gsに pythonInFolderId または SHEET_NAMES が設定されていません。');
     }
@@ -22,7 +21,6 @@ function exportAllSheetsForPython() {
       { sheet: shLog,  name: 'log.csv' },
       { sheet: shCal,  name: 'calendar.csv' }
     ];
-
     tasks.forEach(t => {
       const values = t.sheet.getDataRange().getValues();
       const csv = toCsv_(values);
@@ -31,7 +29,6 @@ function exportAllSheetsForPython() {
       folder.createFile(t.name, csv, MimeType.CSV);
       LOG.info(`  -> ${t.name} を出力完了 (${values.length}行)`);
     });
-
     LOG.info('exportAllSheetsForPython 完了');
     SpreadsheetApp.getUi().alert('main/log/calendar を Python入力フォルダにCSV出力しました。');
   } catch (e) {
@@ -40,6 +37,10 @@ function exportAllSheetsForPython() {
   }
 }
 
+// =================== 修正箇所 START ===================
+/**
+ * logシートをバックアップする（日付形式を保持するよう修正）
+ */
 function backupLogSheet() {
   try {
     LOG.info('logシートのバックアップ 開始');
@@ -48,8 +49,28 @@ function backupLogSheet() {
     const values = sheet.getDataRange().getValues();
     if (values.length <= 1) throw new Error('logシートが空かヘッダーのみです。');
 
-    const csv = toCsv_(values);
     const tz  = Session.getScriptTimeZone();
+    const headers = values[0].map(h => String(h || '').trim());
+    const dayIdx = headers.indexOf('day');
+    const tsIdx  = headers.indexOf('Timestamp');
+
+    // 日付形式を 'yyyy/MM/dd' または 'yyyy/MM/dd HH:mm:ss' に変換
+    const formattedValues = values.map((row, rowIndex) => {
+      if (rowIndex === 0) return row; // ヘッダー行はそのまま
+      const newRow = row.slice();
+      // 'day' 列のフォーマット
+      if (dayIdx >= 0 && newRow[dayIdx] instanceof Date) {
+        newRow[dayIdx] = Utilities.formatDate(newRow[dayIdx], tz, 'yyyy/MM/dd');
+      }
+      // 'Timestamp' 列のフォーマット
+      if (tsIdx  >= 0 && newRow[tsIdx]  instanceof Date) {
+        newRow[tsIdx]  = Utilities.formatDate(newRow[tsIdx],  tz, 'yyyy/MM/dd HH:mm:ss');
+      }
+      return newRow;
+    });
+
+    const csv = toCsv_(formattedValues); // フォーマット済みデータでCSVを生成
+    
     const today = Utilities.formatDate(new Date(), tz, 'yyyyMMdd');
     const folderPath = CONFIG.BACKUP_BASE_PATH + '/' + today;
 
@@ -66,6 +87,7 @@ function backupLogSheet() {
     SpreadsheetApp.getUi().alert('エラー: ' + e.message);
   }
 }
+// =================== 修正箇所 END ===================
 
 function restoreLogFromBackupPrompt() {
   const ui = SpreadsheetApp.getUi();
@@ -120,7 +142,6 @@ function exportWorkdaysCsvDates(workingDays, tz) {
   const tzUse = tz || Session.getScriptTimeZone();
   const formatted = workingDays.map(d => Utilities.formatDate(d, tzUse, 'MM/dd'));
   const csvContent = formatted.join(',');
-
   let outputFolder;
   try {
     outputFolder = DriveApp.getFolderById(CONFIG.calendarOutputFolderId);
@@ -216,7 +237,6 @@ function saveLogToInputMaster_() {
     const dayIdx = headers.indexOf('day');
     const tsIdx  = headers.indexOf('Timestamp');
     const tz = Session.getScriptTimeZone();
-
     const formatted = values.map((row, rowIndex) => {
       if (rowIndex === 0) return row;
       const newRow = row.slice();
@@ -224,17 +244,14 @@ function saveLogToInputMaster_() {
       if (tsIdx  >= 0 && newRow[tsIdx]  instanceof Date) newRow[tsIdx]  = Utilities.formatDate(newRow[tsIdx],  tz, 'yyyy/MM/dd HH:mm:ss');
       return newRow;
     });
-
     const csv = toCsv_(formatted);
     const folderPath = 'dp_Scheduler/Input/Master';
     const folder = getOrCreateFolderByPath_(folderPath);
     if (!folder) throw new Error(`フォルダパス ${folderPath} が見つかりません。`);
-
     const fileName = 'log.csv';
     const iter = folder.getFilesByName(fileName);
     while (iter.hasNext()) iter.next().setTrashed(true);
     folder.createFile(fileName, csv, MimeType.CSV);
-
     LOG.info(`  -> ${folderPath}/${fileName} に log.csv を保存しました。`);
   } catch (e) {
     LOG.error(`saveLogToInputMaster_: ${e.message}`);
