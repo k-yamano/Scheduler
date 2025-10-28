@@ -656,7 +656,7 @@ function placeDataOnCalendar_(sheet, allDates, lineNames, logData, cfg) { // cfg
         // B, C, D列
         rowData.push([it.code, it.productName, it.cell]);
         // E列 (計算式)
-        formulaData.push(['=IFERROR(R[0]C[-1] / 60, "")']); // D列(cell) を 60 で割る例
+        formulaData.push(['=IFERROR((${cellCell} / VLOOKUP(${codeCell}, calculation!$B:$L, 6, FALSE) / 60), "")']);
       });
 
       // 一括書き込み
