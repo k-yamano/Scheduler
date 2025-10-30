@@ -1,0 +1,48 @@
+/content/drive/My Drive/dp_Scheduler
+├── Input
+│   ├── Master
+│   │   ├── base
+│   │   │   ├── base_file.csv
+│   │   │   ├── base_file_k.csv
+│   │   │   └── base_file_m.csv
+│   │   ├── formulation.csv
+│   │   ├── log.csv
+│   │   ├── machine.csv
+│   │   ├── material_master.csv
+│   │   ├── product.csv
+│   │   ├── workday.csv
+│   │   ├── 需要予測_本舗.csv
+│   │   └── 需要予測_販売.csv
+│   └── Resource
+│       ├── main_sheet （format）.gsheet
+│       ├── main_sheet.gsheet
+│       ├── update_master.gsheet
+│       └── upload_data
+│           ├── 77期受注予測数量.xlsx
+│           ├── (全倉庫)zaiko20251022_164738.xlsx
+│           └── 本舗_需要予測.xlsx
+├── Manual
+│   └── 仕様書_自動集計.gdoc
+├── Output
+│   ├── ai_scheduler_demand_list.csv
+│   ├── Backup
+│   │   └── 20251026
+│   │       └── log.csv
+│   └── shortage_list.csv
+├── Program
+│   ├── 1.ipynb
+│   └── 2.ipynb
+└── Repot
+    ├── 20250723_液体製造計画フロー (1).pdf
+    ├── ③_週毎充填予定.xlsx
+    ├── ⑤_液体釜計画表＿20250522.xlsx
+    ├── HS仕込み.xls
+    ├── numデータ2_2024年11月度釜計画元データ_4日Ver.csv
+    ├── 利用手順・手配・マスタデータの入力情報について.xlsx
+    ├── 液体品目一覧表.xlsx
+    ├── 液体釜と充填機の仕様について.pdf
+    ├── 液体釜と充填機の仕様について.pptx
+    ├── 現在庫.gsheet
+    └── 素地一覧表.xlsx
+
+11 directories, 34 files
